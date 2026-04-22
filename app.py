@@ -6,28 +6,19 @@ from openai import OpenAI
 
 app = FastAPI()
 
-client = OpenAI(api_key=os.getenv("acefab3627ca481cc868034d787bb43e"))
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class QueryRequest(BaseModel):
     query: str
     assets: list = []
 
-# --- RULE BASED FAST PATH ---
-def solve_rule_based(text: str):
+# ---------------- RULE BASED ----------------
+def rule_solver(text):
     t = text.lower()
 
-    # Normalize
-    replacements = {
-        "plus": "+",
-        "add": "+",
-        "sum": "+",
-        "total": "+",
-        "and": "+",
-        ",": "+"
-    }
-
-    for k, v in replacements.items():
-        t = t.replace(k, v)
+    t = re.sub(r'\b(plus|add|sum|total|and)\b', '+', t)
+    t = t.replace(",", "+")
 
     numbers = list(map(int, re.findall(r'\d+', t)))
 
@@ -36,39 +27,35 @@ def solve_rule_based(text: str):
 
     return None
 
-# --- LLM FALLBACK ---
-def solve_llm(text: str):
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "Extract numbers from the query and return ONLY the sum as a number."
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ],
-        temperature=0
-    )
-
+# ---------------- LLM FALLBACK ----------------
+def llm_solver(query):
     try:
-        return int(response.choices[0].message.content.strip())
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "Extract numbers and return ONLY the sum as an integer."},
+                {"role": "user", "content": query}
+            ],
+            temperature=0
+        )
+
+        result = response.choices[0].message.content.strip()
+        return int(result)
+
     except:
         return None
 
-# --- MAIN API ---
+# ---------------- MAIN API ----------------
 @app.post("/")
 def solve(req: QueryRequest):
     query = req.query
 
-    # 1. Try rule-based first (FAST)
-    result = solve_rule_based(query)
+    # Step 1: Rule-based (fast)
+    result = rule_solver(query)
 
-    # 2. Fallback to LLM (RARE)
+    # Step 2: LLM fallback (rare)
     if result is None:
-        result = solve_llm(query)
+        result = llm_solver(query)
 
     if result is not None:
         return {"output": f"The sum is {result}."}
