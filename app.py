@@ -6,58 +6,74 @@ from openai import OpenAI
 
 app = FastAPI()
 
-# Initialize OpenAI client
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 class QueryRequest(BaseModel):
     query: str
     assets: list = []
 
-# ---------------- RULE BASED ----------------
+# ---------- RULE BASED ----------
 def rule_solver(text):
     t = text.lower()
 
+    # Normalize words
     t = re.sub(r'\b(plus|add|sum|total|and)\b', '+', t)
     t = t.replace(",", "+")
 
-    numbers = list(map(int, re.findall(r'\d+', t)))
+    # Extract numbers (handles ints, decimals, negatives)
+    numbers = re.findall(r'-?\d+\.?\d*', t)
 
-    if len(numbers) >= 2:
-        return sum(numbers)
+    try:
+        nums = [float(n) for n in numbers]
+    except:
+        return None
+
+    if len(nums) >= 2:
+        return sum(nums)
 
     return None
 
-# ---------------- LLM FALLBACK ----------------
+# ---------- LLM FALLBACK ----------
 def llm_solver(query):
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "Extract numbers and return ONLY the sum as an integer."},
+                {
+                    "role": "system",
+                    "content": "Extract all numbers (including fractions, decimals, negatives) and return ONLY their sum as a number."
+                },
                 {"role": "user", "content": query}
             ],
             temperature=0
         )
 
         result = response.choices[0].message.content.strip()
-        return int(result)
+        return float(result)
 
     except:
         return None
 
-# ---------------- MAIN API ----------------
+# ---------- FORMAT OUTPUT ----------
+def format_number(num):
+    # remove .0 for integers
+    if num == int(num):
+        return str(int(num))
+    return str(round(num, 5))
+
+# ---------- MAIN ----------
 @app.post("/")
 def solve(req: QueryRequest):
     query = req.query
 
-    # Step 1: Rule-based (fast)
+    # Rule-based first (fast)
     result = rule_solver(query)
 
-    # Step 2: LLM fallback (rare)
+    # LLM fallback (only if needed)
     if result is None:
         result = llm_solver(query)
 
     if result is not None:
-        return {"output": f"The sum is {result}."}
+        return {"output": f"The sum is {format_number(result)}."}
 
     return {"output": "I cannot solve this."}
