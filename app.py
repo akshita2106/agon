@@ -1,4 +1,3 @@
-import time
 from fastapi import FastAPI
 from pydantic import BaseModel
 import re
@@ -11,17 +10,22 @@ class QueryRequest(BaseModel):
 
 @app.post("/")
 def solve(req: QueryRequest):
-    start = time.time()
-
     text = req.query.lower()
+
+    # Normalize words to +
+    text = text.replace("plus", "+")
+    text = text.replace("add", "+")
+    text = text.replace("sum", "+")
+    text = text.replace("total", "+")
+    text = text.replace("and", "+")
+    text = text.replace(",", "+")
+    
+    # Extract numbers
     numbers = list(map(int, re.findall(r'\d+', text)))
 
-    if any(word in text for word in ["add", "sum", "+"]):
+    # If multiple numbers → assume addition
+    if "+" in text or len(numbers) > 1:
         result = sum(numbers)
-
-        end = time.time()
-        print("Execution time:", end - start)   # 👈 THIS LINE
-
         return {"output": f"The sum is {result}."}
 
     return {"output": "I cannot solve this."}
